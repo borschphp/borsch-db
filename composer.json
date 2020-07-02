@@ -1,0 +1,20 @@
+{
+  "name": "borschphp/db",
+  "description": "Interact easily with your databases.",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Alexandre DEBUSSCHÈRE",
+      "email": "zizilex@gmail.com"
+    }
+  ],
+  "require": {
+    "php": "^7.2",
+    "laminas/laminas-db": "^2.11"
+  },
+  "autoload": {
+    "psr-4": {
+      "Borsch\\": "src/"
+    }
+  }
+}

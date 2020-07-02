@@ -60,4 +60,4 @@ Internally, the package uses Laminas-Db, you can check [the documentation](https
 
 ## License
 
-The package is licensed under the MIT license. See [License File](https://github.com/borschphp/borsch-db/blob/master/LICENSE.md) for more information.
+The package is licensed under the MIT license. See [License File](https://github.com/borschphp/db/blob/master/LICENSE.md) for more information.

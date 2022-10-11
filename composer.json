@@ -9,12 +9,20 @@
     }
   ],
   "require": {
-    "php": "^7.2",
-    "laminas/laminas-db": "^2.11"
+    "php": "^8.0",
+    "ext-pdo": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.5"
   },
   "autoload": {
     "psr-4": {
       "Borsch\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "BorschTest\\": "tests/"
     }
   }
 }

@@ -6,11 +6,9 @@
 namespace Borsch\Db;
 
 use Closure;
-use InvalidArgumentException;
-use Laminas\Db\Adapter\Adapter;
-use Laminas\Db\Adapter\Driver\ResultInterface;
-use Laminas\Db\ResultSet\ResultSet;
-use Throwable;
+use Exception;
+use PDO;
+use PDOStatement;
 
 /**
  * Class Db
@@ -19,181 +17,151 @@ use Throwable;
 class Db
 {
 
-    /** @var Adapter[] */
-    protected static $connections = [];
-
-    /** @var string */
-    protected static $current;
+    protected PDO $pdo;
 
     /**
-     * @param Adapter $adapter
-     * @param string $name
+     * @param string $dsn
+     * @param string|null $username
+     * @param string|null $password
+     * @param array $options
      */
-    public static function addConnection(Adapter $adapter, string $name): void
+    public function __construct(string $dsn, ?string $username = null, ?string $password = null, array $options = [])
     {
-        self::$connections[$name] = $adapter;
+        $default_options = [
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ,
+            PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        ];
 
-        if (!self::$current) {
-            self::$current = $name;
-        }
+        $options = array_replace($default_options, $options);
+
+        $this->pdo = new PDO($dsn, $username, $password, $options);
     }
 
     /**
-     * @param string $name
-     * @return Adapter
+     * @return PDO
      */
-    public static function getAdapter(?string $name = null): Adapter
+    public function getPDO(): PDO
     {
-        if (!$name) {
-            $name = self::$current;
-        }
-
-        if (!isset(self::$connections[$name])) {
-            throw new InvalidArgumentException(sprintf(
-                'Invalid connection name "%s" (not found)...',
-                $name
-            ));
-        }
-
-        return self::$connections[$name];
-    }
-
-    /**
-     * @param string $name
-     * @return self
-     */
-    public static function connection(string $name): string
-    {
-        self::$current = $name;
-
-        /** @var Db $instance */
-        $instance = __CLASS__;
-
-        return $instance;
+        return $this->pdo;
     }
 
     /**
      * @param string $query
-     * @param array $parameters
-     * @return ResultSet|null
+     * @param array|null $args
+     * @return PDOStatement
      */
-    public static function select(string $query, array $parameters = []): ?ResultSet
+    public function run(string $query, ?array $args = null): PDOStatement
     {
-        $statement = self::getAdapter()->getDriver()->createStatement($query);
-        $statement->prepare();
-
-        $result = $statement->execute($parameters);
-
-        if ($result instanceof ResultInterface && $result->isQueryResult()) {
-            $result_set = new ResultSet();
-            $result_set->initialize($result);
-
-            return $result_set;
+        if (!$args || !count($args)) {
+            return $this->pdo->query($query);
         }
 
-        return null;
+        $stmt = $this->pdo->prepare($query);
+        $stmt->execute($args);
+
+        return $stmt;
     }
 
     /**
      * @param string $query
-     * @param array $parameters
+     * @param array|null $args
+     * @return array
+     */
+    public function select(string $query, ?array $args = null): array
+    {
+        return $this->run($query, $args)->fetchAll();
+    }
+
+    /**
+     * @param string $query
+     * @param array|null $args
      * @return bool
      */
-    public static function insert(string $query, array $parameters = []): bool
+    public function insert(string $query, ?array $args = null): bool
     {
-        $statement = self::getAdapter()->getDriver()->createStatement($query);
-        $statement->prepare();
+        return $this->run($query, $args)->rowCount() > 0;
+    }
 
-        $result = $statement->execute($parameters);
-
-        if ($result instanceof ResultInterface && $result->getAffectedRows()) {
-            return true;
-        }
-
-        return false;
+    /**
+     * @param string|null $name
+     * @return false|string
+     */
+    public function getLastInsertId(?string $name = null): false|string
+    {
+        return $this->pdo->lastInsertId();
     }
 
     /**
      * @param string $query
-     * @param array $parameters
-     * @return bool
+     * @param array|null $args
+     * @return int Affected rows
      */
-    public static function update(string $query, array $parameters = []): int
+    public function update(string $query, ?array $args = null): int
     {
-        $statement = self::getAdapter()->getDriver()->createStatement($query);
-        $statement->prepare();
-
-        $result = $statement->execute($parameters);
-
-        if ($result instanceof ResultInterface) {
-            return $result->getAffectedRows();
-        }
-
-        return 0;
+        return $this->run($query, $args)->rowCount();
     }
 
     /**
      * @param string $query
-     * @param array $parameters
-     * @return int
+     * @param array|null $args
+     * @return int Affected rows
      */
-    public static function delete(string $query, array $parameters = []): int
+    public function delete(string $query, ?array $args = null): int
     {
-        return self::update($query, $parameters);
+        return $this->run($query, $args)->rowCount();
     }
 
     /**
-     * @param string $query
-     * @param array $parameters
      * @return bool
      */
-    public static function execute(string $query, array $parameters = []): bool
+    public function beginTransaction(): bool
     {
-        $statement = self::getAdapter()->getDriver()->createStatement($query);
-        $statement->prepare();
-
-        $result = $statement->execute($parameters);
-
-        if ($result instanceof ResultInterface) {
-            return (bool)$result->getAffectedRows();
-        }
-
-        return false;
-    }
-
-    public static function beginTransaction(): void
-    {
-        self::getAdapter()->getDriver()->getConnection()->beginTransaction();
-    }
-
-    public static function commit(): void
-    {
-        self::getAdapter()->getDriver()->getConnection()->commit();
-    }
-
-    public static function rollBack(): void
-    {
-        self::getAdapter()->getDriver()->getConnection()->rollback();
+        return $this->pdo->beginTransaction();
     }
 
     /**
-     * @param Closure $callable
      * @return bool
      */
-    public static function transaction(Closure $callable): bool
+    public function rollBack(): bool
     {
-        self::beginTransaction();
+        return $this->pdo->rollBack();
+    }
+
+    /**
+     * @return bool
+     */
+    public function commit(): bool
+    {
+        return $this->pdo->commit();
+    }
+
+    /**
+     * @param Closure $closure
+     * @throws Exception
+     */
+    public function transaction(Closure $closure): void
+    {
+        $this->beginTransaction();
 
         try {
-            $callable();
-
-            self::commit();
-        } catch (Throwable $throwable) {
-            self::rollback();
-
-            return false;
+            call_user_func($closure, $this);
+            $this->commit();
+        } catch (Exception $exception) {
+            $this->rollBack();
+            throw $exception;
         }
+    }
 
-        return true;
+    /**
+     * @param string $name
+     * @return DbQuery
+     */
+    public function table(string $name): DbQuery
+    {
+        $builder = new DbQuery($this);
+        $builder->from($name);
+
+        return $builder;
     }
 }

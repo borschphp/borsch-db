@@ -6,6 +6,8 @@
 namespace BorschTest;
 
 use Borsch\Db\Db;
+use Borsch\Db\DbQuery;
+use Borsch\Db\Exception\DbQueryException;
 use PHPUnit\Framework\TestCase;
 
 class DbQueryTest extends TestCase
@@ -31,12 +33,80 @@ class DbQueryTest extends TestCase
         });
     }
 
-    public function testInnerJoin()
+    public function testToString()
+    {
+        $query = (string)$this->db->table('orders')->where('product_id', '=', 1);
+
+        $this->assertIsString($query);
+        // SELECT * FROM `orders` WHERE (`product_id` = :iwcnq)
+        $this->assertMatchesRegularExpression(
+            '/SELECT \* FROM \`orders\` WHERE \(\`product_id\` \= \:[a-z]+\)/',
+            str_replace(PHP_EOL, ' ', $query)
+        );
+    }
+
+    public function testType()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->type('SELECT')
+            ->from('orders');
+
+        $this->assertSame('SELECT', substr($query, 0, 6));
+    }
+
+    public function testTypeLowerKeysIsWorking()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->type('select')
+            ->from('orders');
+
+        $this->assertSame('SELECT', substr($query, 0, 6));
+    }
+
+    public function testTypeThrowsExceptionWhenUnknown()
+    {
+        $query = new DbQuery($this->db);
+        $this->expectException(DbQueryException::class);
+        $query->type('WRONG');
+    }
+
+    public function testSelectIsWildcardByDefault()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders');
+
+        $this->assertSame('SELECT *', substr($query, 0, 8));
+    }
+
+    public function testSelectWithColumns()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->select('customer_id', 'product_id')
+            ->from('orders');
+
+        $this->assertStringStartsWith('SELECT customer_id, product_id', $query);
+    }
+
+    public function testSelectEmptyKeepWildcard()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->select()
+            ->from('orders');
+
+        $this->assertSame('SELECT *', substr($query, 0, 8));
+    }
+
+    public function testAddSelect()
     {
 
     }
 
-    public function test__toString()
+    public function testInnerJoin()
     {
 
     }
@@ -62,11 +132,6 @@ class DbQueryTest extends TestCase
     }
 
     public function testDelete()
-    {
-
-    }
-
-    public function testAddSelect()
     {
 
     }
@@ -121,17 +186,7 @@ class DbQueryTest extends TestCase
 
     }
 
-    public function testSelect()
-    {
-
-    }
-
     public function testNaturalJoin()
-    {
-
-    }
-
-    public function testType()
     {
 
     }

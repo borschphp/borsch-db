@@ -77,8 +77,7 @@ class DbQueryTest extends TestCase
         $query = new DbQuery($this->db);
         $query
             ->from('orders');
-
-        $this->assertSame('SELECT *', substr($query, 0, 8));
+        $this->assertStringStartsWith('SELECT *', $query);
     }
 
     public function testSelectWithColumns()
@@ -98,85 +97,97 @@ class DbQueryTest extends TestCase
             ->select()
             ->from('orders');
 
-        $this->assertSame('SELECT *', substr($query, 0, 8));
+        $this->assertStringStartsWith('SELECT *', $query);
     }
 
     public function testAddSelect()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->select('customer_id', 'product_id')
+            ->from('orders');
+        $query->addSelect('price');
 
-    }
-
-    public function testInnerJoin()
-    {
-
-    }
-
-    public function testOrderBy()
-    {
-
+        $this->assertStringStartsWith('SELECT customer_id, product_id, price', $query);
     }
 
     public function testFrom()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertStringStartsWith('SELECT * FROM `orders`', str_replace(PHP_EOL, ' ', $query));
     }
 
-    public function testAvg()
+    public function testFromWithAlias()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders', 'o');
 
+        $this->assertStringStartsWith('SELECT * FROM `orders` `o`', str_replace(PHP_EOL, ' ', $query));
     }
 
-    public function testMax()
+    public function testFromMultiple()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->from('customers');
 
+        $this->assertStringStartsWith('SELECT * FROM `orders`, `customers`', str_replace(PHP_EOL, ' ', $query));
     }
 
-    public function testDelete()
+    public function testLeftJoin()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'o')
+            ->leftJoin('customers', 'c', 'o.`customer_id` = c.`id');
 
+        $this->assertStringContainsString('LEFT JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
     }
 
-    public function testFind()
+    public function testInnerJoin()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'o')
+            ->innerJoin('customers', 'c', 'o.`customer_id` = c.`id');
 
+        $this->assertStringContainsString('INNER JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
     }
 
-    public function testUpdate()
+    public function testLeftOuterJoin()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'o')
+            ->leftOuterJoin('customers', 'c', 'o.`customer_id` = c.`id');
 
+        $this->assertStringContainsString('LEFT OUTER JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
     }
 
-    public function testInsert()
+    public function testNaturalJoin()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'o')
+            ->naturalJoin('customers', 'c', 'o.`customer_id` = c.`id');
 
+        $this->assertStringContainsString('NATURAL JOIN `customers` `c`', $query);
     }
 
     public function testRightJoin()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'o')
+            ->rightJoin('customers', 'c', 'o.`customer_id` = c.`id');
 
+        $this->assertStringContainsString('RIGHT JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
     }
 
-    public function testValue()
-    {
-
-    }
-
-    public function testGroupBy()
-    {
-
-    }
-
-    public function testCount()
-    {
-
-    }
-
-    public function testMin()
-    {
-
-    }
-
-    public function testSum()
+    public function testWhere()
     {
 
     }
@@ -186,17 +197,12 @@ class DbQueryTest extends TestCase
 
     }
 
-    public function testNaturalJoin()
+    public function testOrderBy()
     {
 
     }
 
-    public function testGet()
-    {
-
-    }
-
-    public function testWhere()
+    public function testGroupBy()
     {
 
     }
@@ -206,17 +212,62 @@ class DbQueryTest extends TestCase
 
     }
 
-    public function testLeftOuterJoin()
-    {
-
-    }
-
-    public function testLeftJoin()
+    public function testGet()
     {
 
     }
 
     public function testFirst()
+    {
+
+    }
+
+    public function testValue()
+    {
+
+    }
+
+    public function testFind()
+    {
+
+    }
+
+    public function testCount()
+    {
+
+    }
+
+    public function testMax()
+    {
+
+    }
+
+    public function testMin()
+    {
+
+    }
+
+    public function testAvg()
+    {
+
+    }
+
+    public function testSum()
+    {
+
+    }
+
+    public function testInsert()
+    {
+
+    }
+
+    public function testUpdate()
+    {
+
+    }
+
+    public function testDelete()
     {
 
     }

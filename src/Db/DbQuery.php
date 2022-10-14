@@ -53,6 +53,14 @@ class DbQuery
     }
 
     /**
+     * @return array
+     */
+    public function getBindings(): array
+    {
+        return $this->bindings;
+    }
+
+    /**
      * @param string $type
      * @return DbQuery
      * @throws DbQueryException
@@ -71,27 +79,59 @@ class DbQuery
     }
 
     /**
-     * @param string ...$columns
+     * @param string|string[] $columns
      * @return $this
+     * @throws DbQueryException
      */
-    public function select(string ...$columns): DbQuery
+    public function select(string|array $columns): DbQuery
     {
-        if (count($columns)) {
-            $this->select = $columns;
+        if (is_string($columns)) {
+            $columns = [$columns];
         }
+
+        return $this->selectAliased(array_map(fn ($column) => [$column], $columns));
+    }
+
+    /**
+     * @param string|array $alias
+     * @param string|array|null $columns
+     * @return $this
+     * @throws DbQueryException
+     */
+    public function selectAliased(string|array $alias, string|array|null $columns = null): DbQuery
+    {
+        if (is_string($alias) && is_string($columns)) {
+            $alias = [[$alias => $columns]];
+        } elseif (is_string($alias) && is_array($columns)) {
+            $alias = array_map(function ($column) use ($alias) {
+                return [$alias => $column];
+            }, $columns);
+        } elseif (!is_array($alias) && !is_null($columns)) {
+            throw DbQueryException::wrongSelects();
+        }
+
+        $this->select = array_reduce($alias, function ($acc, $cur) {
+            foreach ($cur as $a => $c) {
+                $acc[] = sprintf(
+                    '%s%s',
+                    is_int($a) ? '' : ($this->escapeIdentifier($a).'.'),
+                    $this->escapeIdentifier($c)
+                );
+            }
+
+            return $acc;
+        }, []);
 
         return $this;
     }
 
     /**
-     * @param string ...$columns
+     * @param string $columns
      * @return $this
      */
-    public function addSelect(string ...$columns): DbQuery
+    protected function selectRaw(string $columns): DbQuery
     {
-        if (count($columns)) {
-            $this->select = array_merge($this->select, $columns);
-        }
+        $this->select = [$columns];
 
         return $this;
     }
@@ -214,6 +254,19 @@ class DbQuery
      */
     public function where(string $column, string $operand, string $value): DbQuery
     {
+        return $this->whereAliased('', $column, $operand, $value);
+    }
+
+    /**
+     * @param string $alias
+     * @param string $column
+     * @param string $operand
+     * @param string $value
+     * @return $this
+     * @throws DbQueryException
+     */
+    public function whereAliased(string $alias, string $column, string $operand, string $value): DbQuery
+    {
         $operand = strtoupper($operand);
         $operands = ['=', '!=', '<>', '<', '<=', '>', '>=', 'LIKE'];
 
@@ -223,7 +276,8 @@ class DbQuery
 
         $key = $this->generateRandomBindingName();
         $restriction = sprintf(
-            '%s %s :%s',
+            '%s%s %s :%s',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
             $this->escapeIdentifier($column),
             $operand,
             $key
@@ -244,6 +298,19 @@ class DbQuery
      */
     public function having(string $column, string $operand, string $value): DbQuery
     {
+        return $this->havingAliased('', $column, $operand, $value);
+    }
+
+    /**
+     * @param string $alias
+     * @param string $column
+     * @param string $operand
+     * @param string $value
+     * @return $this
+     * @throws DbQueryException
+     */
+    public function havingAliased(string $alias, string $column, string $operand, string $value): DbQuery
+    {
         $operand = strtoupper($operand);
         $operands = ['=', '!=', '<>', '<', '<=', '>', '>=', 'LIKE'];
 
@@ -253,7 +320,8 @@ class DbQuery
 
         $key = $this->generateRandomBindingName();
         $restriction = sprintf(
-            '%s %s :%s',
+            '%s%s %s :%s',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
             $this->escapeIdentifier($column),
             $operand,
             $key
@@ -273,6 +341,18 @@ class DbQuery
      */
     public function orderBy(string $column, string $direction = 'ASC'): DbQuery
     {
+        return $this->orderByAliased('', $column, $direction);
+    }
+
+    /**
+     * @param string $alias
+     * @param string $column
+     * @param string $direction
+     * @return $this
+     * @throws DbQueryException
+     */
+    public function orderByAliased(string $alias, string $column, string $direction = 'ASC'): DbQuery
+    {
         $directions = ['ASC', 'DESC'];
         $direction = strtoupper($direction);
 
@@ -281,7 +361,8 @@ class DbQuery
         }
 
         $this->order[] = sprintf(
-            ' %s %s',
+            '%s%s %s',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
             $this->escapeIdentifier($column),
             $direction
         );
@@ -290,14 +371,26 @@ class DbQuery
     }
 
     /**
-     * @param string ...$columns
+     * @param string $column
      * @return $this
      */
-    public function groupBy(string ...$columns): DbQuery
+    public function groupBy(string $column): DbQuery
     {
-        if (count($columns)) {
-            $this->group = $columns;
-        }
+        return $this->groupByAliased('', $column);
+    }
+
+    /**
+     * @param string $alias
+     * @param string $column
+     * @return $this
+     */
+    public function groupByAliased(string $alias, string $column): DbQuery
+    {
+        $this->group[] = sprintf(
+            '%s%s',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
+            $this->escapeIdentifier($column)
+        );
 
         return $this;
     }
@@ -311,7 +404,7 @@ class DbQuery
     {
         $this->limit = [
             'offset' => max(0, $offset),
-            'limit'  => $limit,
+            'limit' => $limit,
         ];
 
         return $this;
@@ -321,78 +414,120 @@ class DbQuery
      * @return string
      * @throws DbQueryException
      */
-    protected function build(): string
+    public function build(): string
     {
-        if ($this->type == 'SELECT') {
-            $sql = 'SELECT '.(count($this->select) ? implode(', ', $this->select) : '*').PHP_EOL;
-        } else {
-            $sql = $this->type.' ';
-        }
-
         if (!count($this->from)) {
             throw DbQueryException::missingTableName();
         }
 
-        if (in_array($this->type, ['SELECT', 'DELETE'])) {
-            $sql .= 'FROM '.implode(', ', $this->from).PHP_EOL;
-        } elseif ($this->type == 'INSERT') {
-            $sql .= 'INTO '.reset($this->from).PHP_EOL;
-        } elseif ($this->type == 'UPDATE') {
-            $sql .= reset($this->from).PHP_EOL;
-        }
+        return match ($this->type) {
+            'SELECT' => $this->buildSelect(),
+            'INSERT' => $this->buildInsert(),
+            'UPDATE' => $this->buildUpdate(),
+            'DELETE' => $this->buildDelete()
+        };
+    }
 
-        if ($this->type == 'SELECT' && count($this->join)) {
+    /**
+     * @return string
+     */
+    protected function buildSelect(): string
+    {
+        $sql = 'SELECT '.(count($this->select) ? implode(', ', $this->select) : '*').PHP_EOL;
+        $sql .= 'FROM '.implode(', ', $this->from).PHP_EOL;
+
+        if (count($this->join)) {
             $sql .= implode(PHP_EOL, $this->join).PHP_EOL;
         }
 
-        if ($this->type == 'UPDATE') {
-            $sql .= 'SET '.PHP_EOL;
-            foreach ($this->update as $key => $value) {
-                $sql .= sprintf('%s = ?, ', $this->escapeIdentifier($key));
-                $this->bindings[] = $value;
-            }
-
-            $sql = trim($sql, ', ').PHP_EOL;
-        }
-
-        if (in_array($this->type, ['SELECT', 'UPDATE', 'DELETE']) && $this->where) {
+        if ($this->where) {
             $sql .= 'WHERE ('.implode(') AND (', $this->where).')'.PHP_EOL;
         }
 
-        if ($this->type == 'SELECT' && $this->group) {
+        if ($this->group) {
             $sql .= 'GROUP BY '.implode(', ', $this->group).PHP_EOL;
         }
 
-        if ($this->type == 'SELECT' && $this->having) {
+        if ($this->having) {
             $sql .= 'HAVING ('.implode(') AND (', $this->having).')'.PHP_EOL;
         }
 
-        if ($this->type == 'SELECT' && $this->order) {
+        if ($this->order) {
             $sql .= 'ORDER BY '.implode(', ', $this->order).PHP_EOL;
         }
 
-        if (in_array($this->type, ['SELECT', 'DELETE']) && $this->limit['limit']) {
-            $limit = $this->limit;
-            $sql .= 'LIMIT '.($limit['offset'] ? $limit['offset'].', ' : '').$limit['limit'];
+        if ($this->limit['limit']) {
+            $sql .= 'LIMIT '.($this->limit['offset'] ? $this->limit['offset'].', ' : '').$this->limit['limit'];
         }
 
-        if ($this->type == 'INSERT') {
+        return trim($sql);
+    }
+
+    /**
+     * @return string
+     */
+    protected function buildInsert(): string
+    {
+        $sql = $this->type.' ';
+        $sql .= 'INTO '.reset($this->from).PHP_EOL;
+
+        $sql .= sprintf(
+            '(%s)',
+            implode(', ', array_map([$this, 'escapeIdentifier'], array_keys(reset($this->insert))))
+        ).PHP_EOL;
+
+        $sql .= 'VALUES '.PHP_EOL;
+        foreach ($this->insert as $row) {
             $sql .= sprintf(
-                '(%s)',
-                implode(', ', array_map([$this, 'escapeIdentifier'], array_keys(reset($this->insert))))
-            ).PHP_EOL;
+                '(%s), ',
+                implode(', ', array_pad([], count($row), '?'))
+            );
 
-            $sql .= 'VALUES '.PHP_EOL;
-            foreach ($this->insert as $row) {
-                $sql .= sprintf(
-                    '(%s), ',
-                    implode(', ', array_pad([], count($row), '?'))
-                );
+            $this->bindings = array_merge($this->bindings, array_values($row));
+        }
 
-                $this->bindings = array_merge($this->bindings, array_values($row));
-            }
+        $sql = trim($sql, ', ');
 
-            $sql = trim($sql, ', ');
+        return $sql;
+    }
+
+    /**
+     * @return string
+     */
+    protected function buildUpdate():string
+    {
+        $sql = $this->type.' ';
+        $sql .= reset($this->from).PHP_EOL;
+
+        $sql .= 'SET '.PHP_EOL;
+        foreach ($this->update as $key => $value) {
+            $sql .= sprintf('%s = ?, ', $this->escapeIdentifier($key));
+            $this->bindings[] = $value;
+        }
+
+        $sql = trim($sql, ', ').PHP_EOL;
+
+        if ($this->where) {
+            $sql .= 'WHERE ('.implode(') AND (', $this->where).')'.PHP_EOL;
+        }
+
+        return trim($sql);
+    }
+
+    /**
+     * @return string
+     */
+    protected function buildDelete(): string
+    {
+        $sql = $this->type.' ';
+        $sql .= 'FROM '.implode(', ', $this->from).PHP_EOL;
+
+        if ($this->where) {
+            $sql .= 'WHERE ('.implode(') AND (', $this->where).')'.PHP_EOL;
+        }
+
+        if ($this->limit['limit']) {
+            $sql .= 'LIMIT '.($this->limit['offset'] ? $this->limit['offset'].', ' : '').$this->limit['limit'];
         }
 
         return trim($sql);
@@ -403,7 +538,7 @@ class DbQuery
      */
     public function get(): array
     {
-        return $this->db->select($this, $this->bindings);
+        return $this->db->select($this);
     }
 
     /**
@@ -411,27 +546,17 @@ class DbQuery
      */
     public function first(): mixed
     {
-        return $this->db->select($this, $this->bindings)[0] ?? null;
+        return $this->db->select($this)[0] ?? null;
     }
 
     /**
-     * @param string $column
      * @return mixed
      */
-    public function value(string $column): mixed
+    public function value(): mixed
     {
-        return $this->db->select($this, $this->bindings)[0]->{$column} ?? null;
-    }
+        $this->limit(1);
 
-    /**
-     * @param int|string $id
-     * @return mixed
-     * @throws DbQueryException
-     */
-    public function find(int|string $id): mixed
-    {
-        $this->where('id', '=', $id);
-        return $this->first();
+        return $this->db->run($this)->fetchColumn();
     }
 
     /**
@@ -439,53 +564,73 @@ class DbQuery
      */
     public function count(): int
     {
-        $this->select('count(*) AS aggregate');
+        $this->selectRaw('count(*) AS aggregate');
 
-        return (int)$this->value('aggregate');
+        return (int)$this->value();
     }
 
     /**
      * @param string $column
+     * @param string|null $alias
      * @return mixed
      */
-    public function max(string $column): mixed
+    public function max(string $column, ?string $alias = null): mixed
     {
-        $this->select(sprintf('MAX(%s) as aggregate', $column));
+        $this->selectRaw(sprintf(
+            'MAX(%s%s) as aggregate',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
+            $this->escapeIdentifier($column)
+        ));
 
-        return $this->value('aggregate');
+        return $this->value();
     }
 
     /**
      * @param string $column
+     * @param string|null $alias
      * @return mixed
      */
-    public function min(string $column): mixed
+    public function min(string $column, ?string $alias = null): mixed
     {
-        $this->select(sprintf('MIN(%s) as aggregate', $column));
+        $this->selectRaw(sprintf(
+            'MIN(%s%s) as aggregate',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
+            $this->escapeIdentifier($column)
+        ));
 
-        return $this->value('aggregate');
+        return $this->value();
     }
 
     /**
      * @param string $column
+     * @param string|null $alias
      * @return mixed
      */
-    public function avg(string $column): mixed
+    public function avg(string $column, ?string $alias = null): mixed
     {
-        $this->select(sprintf('AVG(%s) as aggregate', $column));
+        $this->selectRaw(sprintf(
+            'AVG(%s%s) as aggregate',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
+            $this->escapeIdentifier($column)
+        ));
 
-        return $this->value('aggregate');
+        return $this->value();
     }
 
     /**
      * @param string $column
+     * @param string|null $alias
      * @return mixed
      */
-    public function sum(string $column): mixed
+    public function sum(string $column, ?string $alias = null): mixed
     {
-        $this->select(sprintf('SUM(%s) as aggregate', $column));
+        $this->selectRaw(sprintf(
+            'SUM(%s%s) as aggregate',
+            strlen($alias) ? ($this->escapeIdentifier($alias).'.') : '',
+            $this->escapeIdentifier($column)
+        ));
 
-        return $this->value('aggregate');
+        return $this->value();
     }
 
     /**

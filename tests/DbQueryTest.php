@@ -9,6 +9,7 @@ use Borsch\Db\Db;
 use Borsch\Db\DbQuery;
 use Borsch\Db\Exception\DbQueryException;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 class DbQueryTest extends TestCase
 {
@@ -35,12 +36,12 @@ class DbQueryTest extends TestCase
 
     public function testToString()
     {
-        $query = (string)$this->db->table('orders')->where('product_id', '=', 1);
+        $query = (string)$this->db->from('orders')->where('product_id', '=', 1);
 
         $this->assertIsString($query);
         // SELECT * FROM `orders` WHERE (`product_id` = :iwcnq)
         $this->assertMatchesRegularExpression(
-            '/SELECT \* FROM \`orders\` WHERE \(\`product_id\` \= \:[a-z]+\)/',
+            '/SELECT \* FROM `orders` WHERE \(`product_id` = :[a-z]+\)/',
             str_replace(PHP_EOL, ' ', $query)
         );
     }
@@ -80,35 +81,57 @@ class DbQueryTest extends TestCase
         $this->assertStringStartsWith('SELECT *', $query);
     }
 
-    public function testSelectWithColumns()
+    public function testSelectWithOneColumn()
     {
         $query = new DbQuery($this->db);
         $query
-            ->select('customer_id', 'product_id')
+            ->select('customer_id')
             ->from('orders');
 
-        $this->assertStringStartsWith('SELECT customer_id, product_id', $query);
+        $this->assertStringStartsWith('SELECT `customer_id`', $query);
     }
 
-    public function testSelectEmptyKeepWildcard()
+    public function testSelectWithMultipleColumns()
     {
         $query = new DbQuery($this->db);
         $query
-            ->select()
+            ->select(['customer_id', 'product_id'])
             ->from('orders');
 
-        $this->assertStringStartsWith('SELECT *', $query);
+        $this->assertStringStartsWith('SELECT `customer_id`, `product_id`', $query);
     }
 
-    public function testAddSelect()
+    public function testSelectAliasedWithOneColumnStringString()
     {
         $query = new DbQuery($this->db);
         $query
-            ->select('customer_id', 'product_id')
-            ->from('orders');
-        $query->addSelect('price');
+            ->selectAliased('ord', 'customer_id')
+            ->from('orders', 'ord');
 
-        $this->assertStringStartsWith('SELECT customer_id, product_id, price', $query);
+        $this->assertStringStartsWith('SELECT `ord`.`customer_id`', $query);
+    }
+
+    public function testSelectAliasedWithMultipleColumnsStringArray()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->selectAliased('ord', ['customer_id', 'product_id'])
+            ->from('orders', 'ord');
+
+        $this->assertStringStartsWith('SELECT `ord`.`customer_id`, `ord`.`product_id`', $query);
+    }
+
+    public function testSelectAliasedWithMultipleColumnsArrayNull()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->selectAliased([
+                ['ord' => 'customer_id'],
+                ['tst' => 'random_col']
+            ])
+            ->from('orders', 'ord');
+
+        $this->assertStringStartsWith('SELECT `ord`.`customer_id`, `tst`.`random_col`', $query);
     }
 
     public function testFrom()
@@ -142,9 +165,9 @@ class DbQueryTest extends TestCase
         $query = new DbQuery($this->db);
         $query
             ->from('orders', 'o')
-            ->leftJoin('customers', 'c', 'o.`customer_id` = c.`id');
+            ->leftJoin('customers', 'c', 'o.`customer_id` = c.`id`');
 
-        $this->assertStringContainsString('LEFT JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
+        $this->assertStringContainsString('LEFT JOIN `customers` `c`  ON o.`customer_id` = c.`id`', $query);
     }
 
     public function testInnerJoin()
@@ -152,9 +175,9 @@ class DbQueryTest extends TestCase
         $query = new DbQuery($this->db);
         $query
             ->from('orders', 'o')
-            ->innerJoin('customers', 'c', 'o.`customer_id` = c.`id');
+            ->innerJoin('customers', 'c', 'o.`customer_id` = c.`id`');
 
-        $this->assertStringContainsString('INNER JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
+        $this->assertStringContainsString('INNER JOIN `customers` `c`  ON o.`customer_id` = c.`id`', $query);
     }
 
     public function testLeftOuterJoin()
@@ -162,9 +185,9 @@ class DbQueryTest extends TestCase
         $query = new DbQuery($this->db);
         $query
             ->from('orders', 'o')
-            ->leftOuterJoin('customers', 'c', 'o.`customer_id` = c.`id');
+            ->leftOuterJoin('customers', 'c', 'o.`customer_id` = c.`id`');
 
-        $this->assertStringContainsString('LEFT OUTER JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
+        $this->assertStringContainsString('LEFT OUTER JOIN `customers` `c`  ON o.`customer_id` = c.`id`', $query);
     }
 
     public function testNaturalJoin()
@@ -182,93 +205,378 @@ class DbQueryTest extends TestCase
         $query = new DbQuery($this->db);
         $query
             ->from('orders', 'o')
-            ->rightJoin('customers', 'c', 'o.`customer_id` = c.`id');
+            ->rightJoin('customers', 'c', 'o.`customer_id` = c.`id`');
 
-        $this->assertStringContainsString('RIGHT JOIN `customers` `c`  ON o.`customer_id` = c.`id', $query);
+        $this->assertStringContainsString('RIGHT JOIN `customers` `c`  ON o.`customer_id` = c.`id`', $query);
     }
 
     public function testWhere()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2);
 
+        $this->assertMatchesRegularExpression(
+            '/SELECT \* FROM `orders` WHERE \(`id` = :[a-z]+\)/',
+            str_replace(PHP_EOL, ' ', $query)
+        );
+    }
+
+    public function testWhereWrongOperandThrowsException()
+    {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
+
+        $this->expectException(DbQueryException::class);
+        $query->where('id', 'UNKNOWN', 2);
+    }
+
+    public function testWhereAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'ord')
+            ->whereAliased('ord', 'id', '=', 2);
+
+        $this->assertMatchesRegularExpression(
+            '/SELECT \* FROM `orders` `ord` WHERE \(`ord`.`id` = :[a-z]+\)/',
+            str_replace(PHP_EOL, ' ', $query)
+        );
     }
 
     public function testHaving()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2)
+            ->having('price', '>=', 20);
 
+        $this->assertMatchesRegularExpression(
+            '/HAVING \(`price` >= :[a-z]+\)/',
+            str_replace(PHP_EOL, ' ', $query)
+        );
     }
 
-    public function testOrderBy()
+    public function testHavingWrongOperandThrowsException()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2);
 
+        $this->expectException(DbQueryException::class);
+        $query->having('price', 'UNKNOWN', 20);
+    }
+
+    public function testHavingAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'ord')
+            ->where('id', '=', 2)
+            ->havingAliased('ord', 'price', '>=', 20);
+
+        $this->assertMatchesRegularExpression(
+            '/HAVING \(`ord`.`price` >= :[a-z]+\)/',
+            str_replace(PHP_EOL, ' ', $query)
+        );
+    }
+
+    public function testOrderByAsc()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2)
+            ->orderBy('price');
+
+        $this->assertStringContainsString('ORDER BY `price` ASC', $query);
+    }
+
+    public function testOrderByDesc()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2)
+            ->orderBy('price', 'DESC');
+
+        $this->assertStringContainsString('ORDER BY `price` DESC', $query);
+    }
+
+    public function testOrderByWrongDirectionThrowsException()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2);
+
+        $this->expectException(DbQueryException::class);
+        $query->orderBy('price', 'UNKNOWN');
+    }
+
+    public function testOrderByAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'ord')
+            ->where('id', '=', 2)
+            ->orderByAliased('ord', 'price');
+
+        $this->assertStringContainsString('ORDER BY `ord`.`price` ASC', $query);
     }
 
     public function testGroupBy()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2)
+            ->groupBy('customer_id');
 
+        $this->assertStringContainsString('GROUP BY `customer_id`', $query);
+    }
+
+    public function testGroupByMultiple()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 2)
+            ->groupBy('customer_id')
+            ->groupBy('price');
+
+        $this->assertStringContainsString('GROUP BY `customer_id`, `price`', $query);
+    }
+
+    public function testGroupByAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders', 'ord')
+            ->where('id', '=', 2)
+            ->groupByAliased('ord', 'customer_id');
+
+        $this->assertStringContainsString('GROUP BY `ord`.`customer_id`', $query);
     }
 
     public function testLimit()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('customer_id', '=', 1)
+            ->limit(1);
 
+        $this->assertStringContainsString('LIMIT 1', $query);
+
+        $result = $this->db->select($query);
+
+        $this->assertCount(1, $this->db->select($query));
+        $this->assertSame(1, $result[0]->product_id);
+    }
+
+    public function testLimitWithOffset()
+    {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('customer_id', '=', 1)
+            ->limit(1, 1);
+
+        $this->assertStringContainsString('LIMIT 1, 1', $query);
+
+        $result = $this->db->select($query);
+
+        $this->assertCount(1, $result);
+        $this->assertSame(2, $result[0]->product_id);
     }
 
     public function testGet()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('customer_id', '=', 1);
 
+        $result = $query->get();
+        $this->assertCount(2, $result);
+        foreach ($result as $row) {
+            $this->assertSame(1, $row->customer_id);
+        }
     }
 
     public function testFirst()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('customer_id', '=', 1)
+            ->orderBy('id');
 
+        $result = $query->first();
+        $this->assertInstanceOf(stdClass::class, $result);
+        $this->assertSame(1, $result->product_id);
     }
 
     public function testValue()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->select('price')
+            ->from('orders')
+            ->where('id', '=', 1);
 
-    }
-
-    public function testFind()
-    {
-
+        $price = $query->value();
+        $this->assertIsFloat($price);
+        $this->assertSame(19.99, $price);
     }
 
     public function testCount()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertSame(3, $query->count());
     }
 
     public function testMax()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertSame(3, $query->max('id'));
+    }
+
+    public function testMaxAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query->from('orders', 'ord');
+
+        $this->assertSame(3, $query->max('id', 'ord'));
     }
 
     public function testMin()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertSame(1, $query->min('id'));
+    }
+
+    public function testMinAlias()
+    {
+        $query = new DbQuery($this->db);
+        $query->from('orders', 'ord');
+
+        $this->assertSame(1, $query->min('id', 'ord'));
     }
 
     public function testAvg()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertSame(2.0, $query->avg('id'));
+    }
+
+    public function testAvgAliased()
+    {
+        $query = new DbQuery($this->db);
+        $query->from('orders', 'ord');
+
+        $this->assertSame(2.0, $query->avg('id', 'ord'));
     }
 
     public function testSum()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders');
 
+        $this->assertSame(6, $query->sum('id'));
     }
 
-    public function testInsert()
+    public function testSumAliased()
     {
+        $query = new DbQuery($this->db);
+        $query->from('orders', 'ord');
 
+        $this->assertSame(6, $query->sum('id', 'ord'));
+    }
+
+    public function testInsertOne()
+    {
+        $date = date('Y-m-d');
+
+        $query = new DbQuery($this->db);
+        $query->from('orders');
+
+        $success = $query->insert(['customer_id' => 20, 'product_id' => 40, 'price' => 33.99, 'date_add' => $date]);
+
+        $this->assertTrue($success);
+
+        $query = new DbQuery($this->db);
+        $query->from('orders')->where('customer_id', '=', 20);
+
+        $result = $query->first();
+
+        $this->assertSame(40, $result->product_id);
+        $this->assertSame(33.99, $result->price);
+        $this->assertSame($date, $result->date_add);
+    }
+
+    public function testInsertMultiple()
+    {
+        $date = date('Y-m-d');
+
+        $query = new DbQuery($this->db);
+        $query->from('orders');
+
+        $success = $query->insert([
+            ['customer_id' => 20, 'product_id' => 40, 'price' => 33.99, 'date_add' => $date],
+            ['customer_id' => 21, 'product_id' => 41, 'price' => 34.99, 'date_add' => $date],
+            ['customer_id' => 22, 'product_id' => 42, 'price' => 35.99, 'date_add' => $date]
+        ]);
+
+        $this->assertTrue($success);
+
+        $query = new DbQuery($this->db);
+        $query->from('orders')->where('customer_id', '=', 21);
+
+        $result = $query->first();
+
+        $this->assertSame(41, $result->product_id);
+        $this->assertSame(34.99, $result->price);
+        $this->assertSame($date, $result->date_add);
     }
 
     public function testUpdate()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 3)
+            ->update(['customer_id' => 20, 'product_id' => 40, 'price' => 33.99]);
 
+        $query = new DbQuery($this->db);
+        $query->from('orders')->where('customer_id', '=', 20);
+
+        $result = $query->first();
+
+        $this->assertSame(40, $result->product_id);
+        $this->assertSame(33.99, $result->price);
     }
 
     public function testDelete()
     {
+        $query = new DbQuery($this->db);
+        $query
+            ->from('orders')
+            ->where('id', '=', 3)
+            ->delete();
 
+        $this->assertNull($query->first());
     }
 }

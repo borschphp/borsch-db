@@ -296,6 +296,6 @@ class DbTest extends TestCase
 
     public function testTable()
     {
-        $this->assertInstanceOf(DbQuery::class, $this->db->table('orders'));
+        $this->assertInstanceOf(DbQuery::class, $this->db->from('orders'));
     }
 }

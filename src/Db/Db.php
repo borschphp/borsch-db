@@ -5,6 +5,7 @@
 
 namespace Borsch\Db;
 
+use Borsch\Db\Exception\DbQueryException;
 use Closure;
 use Exception;
 use PDO;
@@ -47,12 +48,21 @@ class Db
     }
 
     /**
-     * @param string $query
+     * @param string|DbQuery $query
      * @param array|null $args
      * @return PDOStatement
+     * @throws DbQueryException
      */
-    public function run(string $query, ?array $args = null): PDOStatement
+    public function run(string|DbQuery $query, ?array $args = null): PDOStatement
     {
+        if ($query instanceof DbQuery) {
+            // $query->build first in order to fill bindings
+            $sql = $query->build();
+
+            $args = $query->getBindings();
+            $query = $sql;
+        }
+
         if (!$args || !count($args)) {
             return $this->pdo->query($query);
         }
@@ -64,21 +74,23 @@ class Db
     }
 
     /**
-     * @param string $query
+     * @param string|DbQuery $query
      * @param array|null $args
      * @return array
+     * @throws DbQueryException
      */
-    public function select(string $query, ?array $args = null): array
+    public function select(string|DbQuery $query, ?array $args = null): array
     {
         return $this->run($query, $args)->fetchAll();
     }
 
     /**
-     * @param string $query
+     * @param string|DbQuery $query
      * @param array|null $args
      * @return bool
+     * @throws DbQueryException
      */
-    public function insert(string $query, ?array $args = null): bool
+    public function insert(string|DbQuery $query, ?array $args = null): bool
     {
         return $this->run($query, $args)->rowCount() > 0;
     }
@@ -93,21 +105,23 @@ class Db
     }
 
     /**
-     * @param string $query
+     * @param string|DbQuery $query
      * @param array|null $args
      * @return int Affected rows
+     * @throws DbQueryException
      */
-    public function update(string $query, ?array $args = null): int
+    public function update(string|DbQuery $query, ?array $args = null): int
     {
         return $this->run($query, $args)->rowCount();
     }
 
     /**
-     * @param string $query
+     * @param string|DbQuery $query
      * @param array|null $args
      * @return int Affected rows
+     * @throws DbQueryException
      */
-    public function delete(string $query, ?array $args = null): int
+    public function delete(string|DbQuery $query, ?array $args = null): int
     {
         return $this->run($query, $args)->rowCount();
     }
@@ -137,15 +151,15 @@ class Db
     }
 
     /**
-     * @param Closure $closure
+     * @param callable $callback
      * @throws Exception
      */
-    public function transaction(Closure $closure): void
+    public function transaction(callable $callback): void
     {
         $this->beginTransaction();
 
         try {
-            call_user_func($closure, $this);
+            call_user_func($callback, $this);
             $this->commit();
         } catch (Exception $exception) {
             $this->rollBack();
@@ -157,11 +171,8 @@ class Db
      * @param string $name
      * @return DbQuery
      */
-    public function table(string $name): DbQuery
+    public function from(string $name): DbQuery
     {
-        $builder = new DbQuery($this);
-        $builder->from($name);
-
-        return $builder;
+        return (new DbQuery($this))->from($name);
     }
 }

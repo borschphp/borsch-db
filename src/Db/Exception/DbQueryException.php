@@ -63,4 +63,15 @@ class DbQueryException extends Exception
             implode(', ', $expected)
         ));
     }
+
+    public static function wrongSelects()
+    {
+        $right_format = [
+            '[string => string]',
+            '[string => string[]]',
+            '[string[] => null]',
+        ];
+
+        return new static('Wrong select(s) provided, must be one of: '.implode(', ', $right_format));
+    }
 }

@@ -43,7 +43,7 @@ $all_order_customer_id_1 = $db->from('orders')
 $average_price = $db->from('orders')
     ->avg('price');
 
-$a_bit_more_complex = $db->from('orders')
+$a_bit_more_complex = $db->from('orders', 'ord')
     ->selectAliased('ord', ['customer_id', 'product_id'])
     ->whereAliased('ord', 'customer_id', '=', 1)
     ->whereAliased('ord', 'product_id', '=', 1)
@@ -65,7 +65,7 @@ $db->from('orders')
 $db->from('orders')
     ->insert([
         ['customer_id' => 42, 'product_id' => 28, 'price' => 999.99, 'date_add' => date('Y-m-d')]
-    ])
+    ]);
 ```
 
 ## License
